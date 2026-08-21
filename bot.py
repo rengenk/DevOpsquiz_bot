@@ -72,11 +72,11 @@ def get_main_menu():
     return kb.as_markup(resize_keyboard=True)
 
 API_TOKEN = os.getenv("TOKEN")
-PROXY_URL = os.getenv("PROXY_URL")
 
 if not API_TOKEN:
     raise RuntimeError("TOKEN не задан")
 
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
 scheduler = AsyncIOScheduler(
