@@ -38,7 +38,6 @@ more-itertools==11.1.0
 msgpack==1.2.1
 mypy==2.1.0
 mypy_extensions==1.1.0
-nftables==0.1
 olefile==0.47
 packaging==26.2
 pathspec==1.1.1
