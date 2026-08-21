@@ -14,8 +14,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 logging.basicConfig(level=logging.INFO)
 
 TOKEN = ''
-DB_PATH = '/app/data/bot.db'
-QUIZ_PATH = '/app/data/quizzes.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DB_PATH = os.path.join(BASE_DIR, "bot.db")
+QUIZ_PATH = os.path.join(BASE_DIR, "quizzes.json")
 
 active_polls = {}
 
