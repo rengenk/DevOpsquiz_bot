@@ -1,0 +1,10 @@
+services:
+  devops_bot:
+    build: .
+    env_file:
+      - .env
+    container_name: devops_quiz_bot
+    restart: unless-stopped
+    volumes:
+      # Монтируем папку на VPS, чтобы база данных не стиралась при перезапуске контейнера
+      - ./bot_data:/app/data
