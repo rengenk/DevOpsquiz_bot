@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install aiohttp-socks
 
 COPY bot.py .
+COPY quizzes.json .
 
 # Создаем папку для монтирования базы данных
 RUN mkdir /app/data
