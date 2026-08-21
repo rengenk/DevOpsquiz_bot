@@ -6,7 +6,6 @@ CacheControl==0.14.3
 certifi==2026.7.22
 charset-normalizer==3.4.7
 colorama==0.4.6
-cupshelpers==1.0
 Cython==3.2.8
 dependency-groups==1.3.1
 distlib==0.4.3
