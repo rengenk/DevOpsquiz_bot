@@ -23,29 +23,54 @@ active_polls = {}
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS users (chat_id INTEGER PRIMARY KEY)"
-        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                PRIMARY KEY (chat_id, user_id)
+            )
+        """)
         conn.commit()
 
 
-def add_user(chat_id):
+def subscribe_user(chat_id, user_id):
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO users (chat_id) VALUES (?)",
-            (chat_id,)
-        )
+        conn.execute("""
+            INSERT OR IGNORE INTO subscriptions
+            (chat_id, user_id)
+            VALUES (?, ?)
+        """, (chat_id, user_id))
         conn.commit()
 
 
-def get_users():
+def unsubscribe_user(chat_id, user_id):
     with sqlite3.connect(DB_PATH) as conn:
-        return [
-            row[0]
-            for row in conn.execute(
-                "SELECT chat_id FROM users"
-            ).fetchall()
-        ]
+        conn.execute("""
+            DELETE FROM subscriptions
+            WHERE chat_id = ? AND user_id = ?
+        """, (chat_id, user_id))
+        conn.commit()
+
+
+def is_subscribed(chat_id, user_id):
+    with sqlite3.connect(DB_PATH) as conn:
+        result = conn.execute("""
+            SELECT 1
+            FROM subscriptions
+            WHERE chat_id = ? AND user_id = ?
+        """, (chat_id, user_id)).fetchone()
+
+    return result is not None
+
+
+def get_subscribed_chats():
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT chat_id
+            FROM subscriptions
+        """).fetchall()
+
+    return [row[0] for row in rows]
 
 
 def load_quizzes():
@@ -61,15 +86,15 @@ def load_quizzes():
         logging.error(f"Ошибка чтения JSON: {e}")
         return []
 
-def get_main_menu():
+def get_main_menu(subscribed=False):
     kb = ReplyKeyboardBuilder()
 
-    kb.button(text="DevOps")
-    kb.button(text="SQL")
-    kb.button(text="Python")
-    kb.button(text="Рандом")
+    if subscribed:
+        kb.button(text="🔕 Вы подписаны")
+    else:
+        kb.button(text="🔔 Подписаться")
 
-    kb.adjust(3, 1)
+    kb.adjust(1)
 
     return kb.as_markup(resize_keyboard=True)
 
@@ -190,122 +215,100 @@ async def process_quiz_request(
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
 
-    add_user(message.chat.id)
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    subscribed = is_subscribed(
+        chat_id,
+        user_id
+    )
 
     await message.answer(
-        "Привет! Ты подписался на ежедневный "
-        "IT-квиз в 12:00.\n\n"
-        "Выбери интересующую тебя тему "
-        "на панели ниже, чтобы потренироваться "
-        "прямо сейчас 👇",
-        reply_markup=get_main_menu()
+        "🤖 DevOps Quiz Bot\n\n"
+        "Каждый день в 12:00 в этом чате "
+        "появляется новый IT-квиз.\n\n"
+        "За 5 минут до начала, в 11:55, "
+        "я отправлю уведомление.\n\n"
+        "Нажмите кнопку ниже, чтобы подписаться "
+        "на уведомления.",
+        reply_markup=get_main_menu(subscribed)
     )
 
+@dp.message(F.text == "🔔 Подписаться")
+async def subscribe_handler(message: types.Message):
 
-@dp.message(F.text == "DevOps")
-async def menu_devops(message: types.Message):
-    await process_quiz_request(
-        message,
-        topic_filter="DevOps"
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    subscribe_user(
+        chat_id,
+        user_id
     )
 
-@dp.message(F.text == "SQL")
-async def menu_sql(message: types.Message):
-    await process_quiz_request(
-        message,
-        topic_filter="SQL"
+    await message.answer(
+        "✅ Вы подписались на уведомления!\n\n"
+        "⏰ Напоминание — 11:55\n"
+        "📝 Квиз — 12:00",
+        reply_markup=get_main_menu(True)
     )
 
-@dp.message(F.text == "Python")
-async def menu_python(message: types.Message):
-    await process_quiz_request(
-        message,
-        topic_filter="Python"
+@dp.message(F.text == "🔕 Вы подписаны")
+async def unsubscribe_handler(message: types.Message):
+
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    unsubscribe_user(
+        chat_id,
+        user_id
     )
 
-@dp.message(F.text == "Рандом")
-async def menu_random(message: types.Message):
-    await process_quiz_request(
-        message,
-        topic_filter=None
-    )
-
-@dp.message(Command("quiz"))
-async def cmd_quiz(message: types.Message):
-    await process_quiz_request(
-        message,
-        topic_filter=None
+    await message.answer(
+        "🔕 Вы отписались от уведомлений.",
+        reply_markup=get_main_menu(False)
     )
 
 async def send_daily_quiz():
 
-    users = get_users()
+    chats = get_subscribed_chats()
     quizzes = load_quizzes()
 
-    if not users:
-        logging.info(
-            "Нет пользователей для ежедневного квиза."
-        )
+    if not chats:
+        logging.info("Нет чатов с подписчиками")
         return
 
     if not quizzes:
-        logging.warning(
-            "База вопросов пуста."
-        )
+        logging.error("База вопросов пуста")
         return
 
-    valid_quiz = None
+    quiz = random.choice(quizzes)
 
-    for _ in range(5):
-
-        temp_quiz = random.choice(quizzes)
-
-        if temp_quiz.get("correct_indexes"):
-            valid_quiz = temp_quiz
-            break
-
-    if not valid_quiz:
-        logging.error(
-            "Не найден корректный вопрос."
-        )
-        return
-
-    logging.info(
-        f"Ежедневный вопрос: "
-        f"{valid_quiz['question']}"
-    )
-
-    for chat_id in users:
-
+    for chat_id in chats:
         await send_quiz_to_chat(
             chat_id,
-            valid_quiz
+            quiz
         )
 
 async def send_quiz_reminder():
 
-    users = get_users()
+    chats = get_subscribed_chats()
 
-    if not users:
+    if not chats:
         return
 
-    logging.info(
-        "Отправка напоминания о квизе в 11:55..."
-    )
-
     reminder_text = (
-        "⏳ **Приготовься!**\n"
-        "Через 5 минут начнется "
-        "ежедневный IT-квиз. Не пропусти!"
+        "⏳ <b>Квиз начнётся через 5 минут!</b>\n\n"
+        "Приготовьтесь проверить свои знания "
+        "по DevOps, Python и SQL."
     )
 
-    for chat_id in users:
+    for chat_id in chats:
 
         try:
             await bot.send_message(
                 chat_id=chat_id,
                 text=reminder_text,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
 
         except Exception as e:
