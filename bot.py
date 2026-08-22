@@ -21,6 +21,32 @@ QUIZ_PATH = os.path.join(BASE_DIR, "quizzes.json")
 
 active_polls = {}
 
+def migrate_old_users_to_subscriptions():
+    """Миграция старой таблицы users в новую subscriptions"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        
+        # Проверяем, существует ли старая таблица users
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if cursor.fetchone():
+            logging.info("Найдена старая таблица users, выполняю миграцию...")
+            
+            try:
+                # Копируем данные из users в subscriptions
+                cursor.execute("""
+                    INSERT OR IGNORE INTO subscriptions (chat_id, user_id)
+                    SELECT chat_id, chat_id as user_id FROM users
+                """)
+                conn.commit()
+                
+                # Удаляем старую таблицу
+                cursor.execute("DROP TABLE users")
+                conn.commit()
+                
+                logging.info("Миграция успешна")
+            except Exception as e:
+                logging.error(f"Ошибка при миграции: {e}")
+
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("""
@@ -31,6 +57,9 @@ def init_db():
             )
         """)
         conn.commit()
+    
+    # Выполняем миграцию после создания новой таблицы
+    migrate_old_users_to_subscriptions()
 
 
 def subscribe_user(chat_id, user_id):
@@ -41,6 +70,7 @@ def subscribe_user(chat_id, user_id):
             VALUES (?, ?)
         """, (chat_id, user_id))
         conn.commit()
+        logging.info(f"Пользователь {user_id} подписан на чат {chat_id}")
 
 
 def unsubscribe_user(chat_id, user_id):
@@ -50,6 +80,7 @@ def unsubscribe_user(chat_id, user_id):
             WHERE chat_id = ? AND user_id = ?
         """, (chat_id, user_id))
         conn.commit()
+        logging.info(f"Пользователь {user_id} отписан от чата {chat_id}")
 
 
 def is_subscribed(chat_id, user_id):
@@ -70,7 +101,9 @@ def get_subscribed_chats():
             FROM subscriptions
         """).fetchall()
 
-    return [row[0] for row in rows]
+    chats = [row[0] for row in rows]
+    logging.info(f"Найдено {len(chats)} чатов с подписчиками: {chats}")
+    return chats
 
 
 def load_quizzes():
@@ -80,7 +113,9 @@ def load_quizzes():
 
     try:
         with open(QUIZ_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            quizzes = json.load(f)
+            logging.info(f"Загружено {len(quizzes)} вопросов")
+            return quizzes
 
     except Exception as e:
         logging.error(f"Ошибка чтения JSON: {e}")
@@ -162,6 +197,7 @@ async def send_quiz_to_chat(chat_id, quiz):
             "options": options
         }
 
+        logging.info(f"Квиз отправлен в чат {chat_id}")
         return True
 
     except Exception as e:
@@ -269,18 +305,20 @@ async def unsubscribe_handler(message: types.Message):
     )
 
 async def send_daily_quiz():
-
+    logging.info("Запуск send_daily_quiz")
+    
     chats = get_subscribed_chats()
     quizzes = load_quizzes()
 
     if not chats:
-        logging.info("Нет чатов с подписчиками")
+        logging.warning("Нет чатов с подписчиками")
         return
 
     if not quizzes:
         logging.error("База вопросов пуста")
         return
 
+    logging.info(f"Отправляю квиз в {len(chats)} чатов")
     quiz = random.choice(quizzes)
 
     for chat_id in chats:
@@ -288,12 +326,16 @@ async def send_daily_quiz():
             chat_id,
             quiz
         )
+    
+    logging.info("send_daily_quiz завершена")
 
 async def send_quiz_reminder():
-
+    logging.info("Запуск send_quiz_reminder")
+    
     chats = get_subscribed_chats()
 
     if not chats:
+        logging.warning("Нет чатов для отправки напоминания")
         return
 
     reminder_text = (
@@ -302,6 +344,8 @@ async def send_quiz_reminder():
         "по DevOps, Python и SQL."
     )
 
+    logging.info(f"Отправляю напоминание в {len(chats)} чатов")
+    
     for chat_id in chats:
 
         try:
@@ -310,12 +354,15 @@ async def send_quiz_reminder():
                 text=reminder_text,
                 parse_mode="HTML"
             )
+            logging.info(f"Напоминание отправлено в чат {chat_id}")
 
         except Exception as e:
             logging.error(
                 f"Ошибка отправки напоминания "
                 f"в чат {chat_id}: {e}"
             )
+    
+    logging.info("send_quiz_reminder завершена")
 
 async def close_daily_quiz_memory():
 
@@ -346,3 +393,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
